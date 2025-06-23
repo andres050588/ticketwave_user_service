@@ -7,10 +7,6 @@ app.use(express.json())
 
 app.use("/api", authRoutes)
 
-app.get("/api/users/currentuser", (req, res) => {
-    res.send({ currentUser: null })
-})
-
 async function startServer() {
     try {
         await sequelize.authenticate()
