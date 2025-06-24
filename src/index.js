@@ -7,7 +7,8 @@ app.use(express.json())
 
 app.use("/api", authRoutes)
 
-async function startServer() {
+const MAX_RETRY = 3
+async function startServer(retry = MAX_RETRY) {
     try {
         await sequelize.authenticate()
         console.log("✅ Connessione al database riuscita!")
@@ -18,7 +19,12 @@ async function startServer() {
             console.log(`User service listening on port ${PORT}`)
         })
     } catch (error) {
-        console.error("Errore nella connessione al DB:", error)
+        if (retry > 0) {
+            console.log(`🔁 Riprovo a connettermi... Tentativi rimasti: ${retry}`)
+            setTimeout(() => startServer(retry - 1), 5000)
+        } else {
+            console.error("❌ Impossibile connettersi al database dopo vari tentativi.")
+        }
     }
 }
 

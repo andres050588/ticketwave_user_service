@@ -7,11 +7,7 @@ const sequelize = new Sequelize(process.env.DB_NAME, process.env.DB_USER, proces
     dialectOptions: {
         connectTimeout: 10000
     },
-    logging: msg => {
-        if (msg.toLowerCase().includes("error")) {
-            console.error("ERRORE SQL:", msg)
-        }
-    }
+    logging: false
 })
 
 export default sequelize
