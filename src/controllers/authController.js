@@ -1,7 +1,8 @@
 import bcrypt from "bcrypt"
 import jwt from "jsonwebtoken"
 import User from "../models/User.js"
-//import { isAdmin } from "../middleware/isAdmin.js" // per funzioni future
+import redis from "../redisClient.js"
+import { isAdmin } from "../middleware/isAdmin.js" // per funzioni future
 
 // -----------------------------logica di registrazzione
 export const register = async (request, response) => {
@@ -24,7 +25,23 @@ export const register = async (request, response) => {
         })
 
         const token = jwt.sign({ userId: user.id, name: user.name, email: user.email, isAdmin: user.isAdmin }, process.env.JWT_SECRET, { expiresIn: "1h" })
+        await redis.set(
+            `user:${user.id}`,
+            JSON.stringify({
+                id: user.id,
+                name: user.name,
+                email: user.email
+            })
+        )
 
+        await redis.publish(
+            "user-aggiornato",
+            JSON.stringify({
+                id: user.id,
+                name: user.name,
+                email: user.email
+            })
+        )
         return response.status(201).json({ token })
     } catch (error) {
         console.error("Errore durante la registrazione: ", error)
@@ -63,6 +80,13 @@ export const login = async (request, response) => {
 export const userProfile = async (request, response) => {
     try {
         const userId = request.user.userId
+        // Si legge i dati dalla cache Redis
+        const cachedUser = await redis.get(`user:${userId}`)
+        if (cachedUser) {
+            return response.json(JSON.parse(cachedUser))
+        }
+
+        // Se non è in cache, leggi dal DB
         const user = await User.findByPk(userId, {
             attributes: ["id", "name", "email", "createdAt"]
         })
@@ -70,17 +94,21 @@ export const userProfile = async (request, response) => {
             return response.status(404).json({ error: "Utente non trovato" })
         }
 
-        const formattedDate = user.createdAt.toLocaleDateString("it-IT", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric"
-        })
-        return response.json({
+        const userData = {
             id: user.id,
             name: user.name,
             email: user.email,
-            createdAt: formattedDate
-        })
+            createdAt: user.createdAt.toLocaleDateString("it-IT", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric"
+            })
+        }
+
+        // Si salva nella cache Redis
+        await redis.set(`user:${userId}`, JSON.stringify(userData))
+
+        return response.json(userData)
     } catch (error) {
         console.error("Errore nel recupero del profilo")
         return response.status(500).json({ error: "Errore server" })
@@ -95,27 +123,47 @@ export const updateUserProfile = async (request, response) => {
         const userToUpdate = await User.findByPk(userToUpdateID)
 
         if (!userToUpdate) {
-            console.log("Utente da aggiornare inesistente")
             return response.status(404).json({ error: "Utente da aggiornare inesistente" })
         }
 
         const { name, email } = request.body
-        if (!name && !email) return response.status(400).json({ error: "Nessun campo da aggiornare. Fornisci almeno 'name' o 'email'." })
+        if (!name && !email) {
+            return response.status(400).json({ error: "Fornisci almeno 'name' o 'email'." })
+        }
 
-        if (name) {
-            userToUpdate.name = name
-        }
-        if (email) {
-            userToUpdate.email = email
-        }
+        if (name) userToUpdate.name = name
+        if (email) userToUpdate.email = email
+
         await userToUpdate.save()
+
+        console.log("✅ Utente aggiornato nel DB:", {
+            id: userToUpdate.id,
+            name: userToUpdate.name,
+            email: userToUpdate.email
+        })
+
+        const updatedUser = {
+            id: userToUpdate.id,
+            name: userToUpdate.name,
+            email: userToUpdate.email
+        }
+
+        // AGGIORNIAMO LA CACHE
+        await redis.set(`user:${userToUpdate.id}`, JSON.stringify(updatedUser))
+        console.log(`💾 Cache aggiornata per user:${userToUpdate.id}`)
+
+        // SI PUBBLICA AGGIORNAMENTO
+        await redis.publish("user-aggiornato", JSON.stringify(updatedUser))
+
+        console.log("📣 Evento 'user-aggiornato' pubblicato su Redis:", {
+            id: userToUpdate.id,
+            name: userToUpdate.name,
+            email: userToUpdate.email
+        })
+
         return response.status(200).json({
             message: "Profilo aggiornato con successo",
-            user: {
-                id: userToUpdate.id,
-                name: userToUpdate.name,
-                email: userToUpdate.email
-            }
+            user: updatedUser
         })
     } catch (error) {
         console.error("Errore nel aggiornamento dati utente", error)

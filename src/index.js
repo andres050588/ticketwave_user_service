@@ -1,6 +1,7 @@
 import express from "express"
 import sequelize from "./config/db.js"
 import authRoutes from "./routes/authRoutes.js"
+import redis from "./redisClient.js"
 
 const app = express()
 app.use(express.json())
@@ -11,8 +12,8 @@ const MAX_RETRY = 3
 async function startServer(retry = MAX_RETRY) {
     try {
         await sequelize.authenticate()
-        console.log("✅ Connessione al database riuscita!")
-        await sequelize.sync({ force: true })
+        console.log("Connessione al database riuscita!")
+        await sequelize.sync() // aggiungo { force: true } se voglio ressetare i dati nella db
 
         const PORT = process.env.PORT || 3001
         app.listen(PORT, () => {
@@ -20,10 +21,10 @@ async function startServer(retry = MAX_RETRY) {
         })
     } catch (error) {
         if (retry > 0) {
-            console.log(`🔁 Riprovo a connettermi... Tentativi rimasti: ${retry}`)
+            console.log(`Riprovo a connettermi... Tentativi rimasti: ${retry}`)
             setTimeout(() => startServer(retry - 1), 5000)
         } else {
-            console.error("❌ Impossibile connettersi al database dopo vari tentativi.")
+            console.error("Impossibile connettersi al database dopo vari tentativi.")
         }
     }
 }
