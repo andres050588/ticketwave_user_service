@@ -1,6 +1,7 @@
 import express from "express"
 import { login, register, updateUserProfile, userProfile, userProfile_ByAdmin, usersList_ByAdmin } from "../controllers/authController.js"
 import { verifyToken, verifyAdmin } from "../../../common/middlewares/verifyToken.js"
+import "../events/subscriber.js"
 
 const routerAuth = express.Router()
 

@@ -2,6 +2,7 @@ import express from "express"
 import sequelize from "./config/db.js"
 import authRoutes from "./routes/authRoutes.js"
 import redis from "./redisClient.js"
+import "./events/subscriber.js"
 
 const app = express()
 app.use(express.json())

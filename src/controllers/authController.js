@@ -4,6 +4,10 @@ import User from "../models/User.js"
 import redis from "../redisClient.js"
 import { isAdmin } from "../middleware/isAdmin.js" // per funzioni future
 
+const generateToken = (user, expiresIn = "1h") => {
+    return jwt.sign({ userId: user.id, name: user.name, email: user.email, isAdmin: user.isAdmin }, process.env.JWT_SECRET, { expiresIn })
+}
+
 // -----------------------------logica di registrazzione
 export const register = async (request, response) => {
     try {
@@ -24,13 +28,15 @@ export const register = async (request, response) => {
             password: hashedPassword
         })
 
-        const token = jwt.sign({ userId: user.id, name: user.name, email: user.email, isAdmin: user.isAdmin }, process.env.JWT_SECRET, { expiresIn: "1h" })
+        const token = generateToken(user, "1h")
+        const createdAt = user.createdAt?.toISOString() || new Date().toISOString()
         await redis.set(
             `user:${user.id}`,
             JSON.stringify({
                 id: user.id,
                 name: user.name,
-                email: user.email
+                email: user.email,
+                createdAt
             })
         )
 
@@ -39,7 +45,8 @@ export const register = async (request, response) => {
             JSON.stringify({
                 id: user.id,
                 name: user.name,
-                email: user.email
+                email: user.email,
+                createdAt
             })
         )
         return response.status(201).json({ token })
@@ -67,7 +74,7 @@ export const login = async (request, response) => {
             return response.status(401).json({ error: "Email o password non validi" })
         }
 
-        const token = jwt.sign({ userId: user.id, name: user.name, email: user.email, isAdmin: user.isAdmin }, process.env.JWT_SECRET, { expiresIn: "1h" })
+        const token = generateToken(user, "4h")
         return response.status(200).json({ token })
     } catch (error) {
         console.error("Errore nel login", error.message)
@@ -98,11 +105,7 @@ export const userProfile = async (request, response) => {
             id: user.id,
             name: user.name,
             email: user.email,
-            createdAt: user.createdAt.toLocaleDateString("it-IT", {
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric"
-            })
+            createdAt: user.createdAt.toISOString()
         }
 
         // Si salva nella cache Redis
@@ -117,57 +120,51 @@ export const userProfile = async (request, response) => {
 
 // -----------User profile update (dati del profilo visto da user stesso)
 
-export const updateUserProfile = async (request, response) => {
+export const updateUserProfile = async (req, res) => {
+    const userId = req.params.id
+    const { name, email } = req.body
+
+    if (!name && !email) {
+        return res.status(400).json({ error: "Fornisci almeno 'name' o 'email'." })
+    }
+
     try {
-        const userToUpdateID = request.params.id
-        const userToUpdate = await User.findByPk(userToUpdateID)
+        const user = await User.findByPk(userId)
 
-        if (!userToUpdate) {
-            return response.status(404).json({ error: "Utente da aggiornare inesistente" })
+        if (!user) {
+            return res.status(404).json({ error: "Utente da aggiornare inesistente" })
         }
 
-        const { name, email } = request.body
-        if (!name && !email) {
-            return response.status(400).json({ error: "Fornisci almeno 'name' o 'email'." })
-        }
+        // Solo se ci sono cambiamenti reali
+        if (name) user.name = name
+        if (email) user.email = email
 
-        if (name) userToUpdate.name = name
-        if (email) userToUpdate.email = email
-
-        await userToUpdate.save()
-
-        console.log("✅ Utente aggiornato nel DB:", {
-            id: userToUpdate.id,
-            name: userToUpdate.name,
-            email: userToUpdate.email
-        })
+        await user.save()
 
         const updatedUser = {
-            id: userToUpdate.id,
-            name: userToUpdate.name,
-            email: userToUpdate.email
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            createdAt: user.createdAt?.toISOString()
         }
 
-        // AGGIORNIAMO LA CACHE
-        await redis.set(`user:${userToUpdate.id}`, JSON.stringify(updatedUser))
-        console.log(`💾 Cache aggiornata per user:${userToUpdate.id}`)
+        const payload = JSON.stringify(updatedUser)
+        // Aggiorna cache Redis
+        await redis.set(`user:${user.id}`, payload)
+        console.log(`✅ [UserService] Cache aggiornata per user:${user.id}`)
 
-        // SI PUBBLICA AGGIORNAMENTO
-        await redis.publish("user-aggiornato", JSON.stringify(updatedUser))
+        // Pubblica evento
 
-        console.log("📣 Evento 'user-aggiornato' pubblicato su Redis:", {
-            id: userToUpdate.id,
-            name: userToUpdate.name,
-            email: userToUpdate.email
-        })
+        await redis.publish("user-aggiornato", payload)
+        console.log(`📢 [UserService] Evento 'user-aggiornato' pubblicato`)
 
-        return response.status(200).json({
+        return res.status(200).json({
             message: "Profilo aggiornato con successo",
             user: updatedUser
         })
-    } catch (error) {
-        console.error("Errore nel aggiornamento dati utente", error)
-        return response.status(500).json({ error: "Errore server" })
+    } catch (err) {
+        console.error("❌ [UserService] Errore aggiornamento profilo:", err)
+        return res.status(500).json({ error: "Errore server" })
     }
 }
 
@@ -181,16 +178,11 @@ export const userProfile_ByAdmin = async (request, response) => {
         })
         if (!user) return response.status(404).json({ error: "Utente non trovato" })
 
-        const formattedDate = user.createdAt.toLocaleDateString("it-IT", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric"
-        })
         return response.json({
             id: user.id,
             name: user.name,
             email: user.email,
-            createdAt: formattedDate,
+            createdAt: user.createdAt.toISOString(),
             isAdmin: user.isAdmin
         })
     } catch (error) {
