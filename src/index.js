@@ -1,10 +1,25 @@
 import express from "express"
 import sequelize from "./config/db.js"
 import authRoutes from "./routes/authRoutes.js"
+import cors from "cors"
 import redis from "./redisClient.js"
 import "./events/subscriber.js"
 
 const app = express()
+
+app.use(
+    cors({
+        origin: "http://localhost:8080",
+        credentials: true
+    })
+)
+app.options(
+    "*",
+    cors({
+        origin: "http://localhost:8080",
+        credentials: true
+    })
+)
 app.use(express.json())
 
 app.use("/api", authRoutes)

@@ -5,9 +5,9 @@ import "../events/subscriber.js"
 
 const routerAuth = express.Router()
 
-routerAuth.post("/register", register)
-routerAuth.post("/login", login)
-routerAuth.get("/profile", verifyToken, userProfile)
+routerAuth.post("/users/register", register)
+routerAuth.post("/users/login", login)
+routerAuth.get("/users/profile", verifyToken, userProfile)
 routerAuth.put("/users/:id", verifyToken, updateUserProfile)
 
 //Admin routes
